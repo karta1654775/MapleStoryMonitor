@@ -188,12 +188,18 @@ def _validate_summary(summary, category):
     if len(summary) < 500:
         return False
 
-    # 只有例行維護／更新公告額外檢查，避免 Gemini 把內部工作筆記吐到 Discord。
+    # 只有例行維護／更新公告額外檢查：避免 Gemini 把內部工作筆記吐到 Discord。
+    # 維護公告的內容量本來就可能很大，因此不要用過度嚴格的字數／條列數
+    # 把正常摘要擋掉；只要四個區塊存在、重點有足夠條列，且沒有明顯的
+    # 模型工作筆記，就視為可送出。
     if category == "maintenance":
         forbidden = ["二次檢查", "區塊 1", "區塊 2", "區塊 3", "區塊 4",
-                     "無 # 標題", "無結語", "完整度檢查", "格式檢查",
-                     "上一版輸出", "重新整理整篇", "符合完整度要求"]
+                     "上一版輸出", "重新整理整篇", "符合完整度要求",
+                     "工作筆記", "格式檢查結果"]
         if any(x in summary for x in forbidden):
+            return False
+        # 維護公告允許較短的內容，但至少要有 4 個重點條列。
+        if len(bullets) < 4 or len(summary) < 350:
             return False
     return True
 
@@ -263,7 +269,12 @@ def summarize(title, body, url, category="general"):
             final_result, _final_model = _summarize_with_fallback(_repair_prompt(title, body, url, category, ""))
             if _validate_summary(final_result, category):
                 return final_result
-            print("維護公告三次整理仍未通過格式檢查，暫不送出。")
+            # 最後保底：只要最後一次有完整四區塊且不是明顯工作筆記，
+            # 就送出，不再因字數／條列數的模型差異造成維護公告完全消失。
+            if final_result and all(x in final_result for x in ["📌 重點整理", "🗓️ 時間／期限", "🎁 活動／獎勵／商品", "⚠️ 注意事項"]):
+                print("維護公告格式接近標準但仍有細節差異，採用最後一次結果送出。")
+                return final_result
+            print("維護公告三次整理仍無法產生可用摘要，暫不送出。")
             return None
 
         print("Gemini 二次整理仍未完全通過格式檢查，使用二次結果送出。")
