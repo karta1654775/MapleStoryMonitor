@@ -12,7 +12,7 @@ on:
           - normal
           - simulate
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/5 * * * *"
       timezone: "Asia/Taipei"
 
 permissions:
@@ -36,7 +36,7 @@ jobs:
       DISCORD_MAINTENANCE_WEBHOOK: ${{ secrets.DISCORD_MAINTENANCE_WEBHOOK }}
       MAPLE_BROWSER: chromium
       MAPLE_URL: https://maplestory.beanfun.com/Main
-      POLL_SECONDS: "600"
+      POLL_SECONDS: "300"
       MAX_NEW_PER_RUN: "10"
       API_SCAN_PAGES: "2"
       GENERAL_KEYWORDS: 職業,活動,燃燒
