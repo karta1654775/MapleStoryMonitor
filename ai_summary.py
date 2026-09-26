@@ -42,9 +42,9 @@ def _request(model, prompt):
     }
 
     last_error = None
-    for attempt, wait_seconds in enumerate((0, 4, 10), start=1):
+    for attempt, wait_seconds in enumerate((0, 4), start=1):
         if wait_seconds:
-            print(f"Gemini 暫時不可用，{wait_seconds} 秒後重試（第 {attempt}/3 次）...")
+            print(f"Gemini 暫時不可用，{wait_seconds} 秒後重試（第 {attempt}/2 次）...")
             time.sleep(wait_seconds)
         try:
             r = requests.post(
