@@ -187,20 +187,57 @@ def _validate_summary(summary, category):
     # 避免模型只回一小段就結束。
     if len(summary) < 500:
         return False
+
+    # 只有例行維護／更新公告額外檢查，避免 Gemini 把內部工作筆記吐到 Discord。
+    if category == "maintenance":
+        forbidden = ["二次檢查", "區塊 1", "區塊 2", "區塊 3", "區塊 4",
+                     "無 # 標題", "無結語", "完整度檢查", "格式檢查",
+                     "上一版輸出", "重新整理整篇", "符合完整度要求"]
+        if any(x in summary for x in forbidden):
+            return False
     return True
 
 
 def _repair_prompt(title, body, url, category, previous):
+    # 維護公告重新整理時完全重新讀原文，不把上一版的工作筆記帶進提示。
+    if category == "maintenance":
+        return f"""你是新楓之谷台灣官方公告的 Discord 懶人包整理助手。
+
+請重新閱讀下面的官方公告原文，直接產生一份可貼到 Discord 的完整懶人包。
+只根據官方公告原文，不要輸出分析過程，也不要評論任何先前輸出。
+
+【公告標題】
+{title}
+
+【官方公告原文】
+{body[:40000]}
+
+請嚴格使用以下格式，且只輸出這 4 個區塊：
+
+📌 重點整理
+- 至少 6 個第一層條列。
+- 逐項整理本次例行維護後玩家需要知道的重要更新。
+- 原文有商城新品、活動、優惠、異常處理、重新舉辦、修正改善、系統／職業／道具調整、已知事項等，必須分別整理；沒有的不要捏造。
+
+🗓️ 時間／期限
+- 列出所有重要日期、時間、開始／結束時間、販售期間、重新舉辦日期等。
+
+🎁 活動／獎勵／商品
+- 具體列出原文中的商城、活動、獎勵、商品與道具名稱。
+- 有價格、數量、次數、條件、機率等資訊必須保留。
+
+⚠️ 注意事項
+- 列出原文明確提到的限制、資格、機率、異常處理、道具回收、遊戲內為準及其他重要注意事項。
+
+重要：不要輸出 # 標題、區塊編號、二次檢查、格式檢查、無結語、上一版、工作筆記或任何開場／結語。不要把指令內容當成公告內容。完整度優先，不要把多項更新濃縮成一兩句。
+"""
     return build_prompt(title, body, url, category) + f"""
 
-【二次檢查】
-你上一版輸出沒有達到完整度要求。請重新整理整篇官方公告，不要只補一句話。
-上一版如下：
+請重新閱讀完整官方公告後，直接輸出符合指定格式的完整懶人包。
+上一版僅供判斷可能遺漏的內容，不要引用其中的工作筆記或格式說明。
+上一版：
 {previous[:8000]}
-
-請重新輸出完整的 4 個區塊，並特別確認「📌 重點整理」至少 {6 if category == 'maintenance' else 5} 個第一層條列；維護／更新公告尤其要把本次更新、商城、活動、優惠、異常處理等原文事項全部納入。
 """
-
 
 def summarize(title, body, url, category="general"):
     key = _api_key()
@@ -220,7 +257,15 @@ def summarize(title, body, url, category="general"):
         if _validate_summary(repaired, category):
             return repaired
 
-        # 即使模型第二次仍不完全符合格式，也保留第二次較完整的結果，避免整篇公告因驗證失敗而不發送。
+        # 只有維護／更新公告再做一次乾淨重寫；其他公告維持原本行為。
+        if category == "maintenance":
+            print("維護公告第二次仍未通過格式檢查，進行最後一次乾淨重寫...")
+            final_result, _final_model = _summarize_with_fallback(_repair_prompt(title, body, url, category, ""))
+            if _validate_summary(final_result, category):
+                return final_result
+            print("維護公告三次整理仍未通過格式檢查，暫不送出。")
+            return None
+
         print("Gemini 二次整理仍未完全通過格式檢查，使用二次結果送出。")
         return repaired or result
     except Exception as e:
