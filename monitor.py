@@ -308,32 +308,80 @@ def seen_item_count(seen):
     return len(seen)
 
 
+def _clean_article_text(text, title=""):
+    """移除官方網站導覽／頁尾等 boilerplate，避免 Gemini 把網站 UI 當成公告內容。"""
+    if not text:
+        return ""
+
+    lines = []
+    seen = set()
+    noise_exact = {
+        "官方公告",
+        "新楓之谷 maplestory 中文官方網站",
+        "新楓之谷 maplestory 最團結的冒險！",
+        "官方網站",
+    }
+    for raw in text.replace("\r", "").split("\n"):
+        line = " ".join(raw.split()).strip()
+        if not line or line in noise_exact:
+            continue
+        if line in seen:
+            continue
+        seen.add(line)
+        lines.append(line)
+
+    cleaned = "\n".join(lines)
+
+    # 如果頁面把網站標頭放在正文前面，從公告標題第一次出現的位置開始。
+    if title and title in cleaned:
+        cleaned = cleaned[cleaned.find(title):]
+
+    # 常見頁尾從這裡開始；正文不需要把網站導覽／版權資訊交給模型。
+    footer_markers = [
+        "客服中心", "客服專線", "Copyright", "© NEXON",
+        "隱私權政策", "服務條款", "遊戲橘子", "beanfun.com",
+    ]
+    positions = [cleaned.find(m) for m in footer_markers if cleaned.find(m) > 200]
+    if positions:
+        cleaned = cleaned[:min(positions)]
+
+    return cleaned.strip()
+
 def extract_article(page, url, fallback_title=""):
     page.goto(url, wait_until="domcontentloaded", timeout=30000)
     try:
         page.wait_for_load_state("networkidle", timeout=12000)
     except PlaywrightTimeoutError:
         pass
-    page.wait_for_timeout(800)
+    page.wait_for_timeout(1200)
 
     title = ""
     for selector in [
-        "h1", "h2", ".board-view h1", ".board-view h2",
-        ".bulletin h1", ".bulletin h2", ".board-title",
-        ".bulletin-title", "title"
+        ".board-view h1", ".board-view h2",
+        ".bulletin h1", ".bulletin h2",
+        ".board-title", ".bulletin-title",
+        "main h1", "main h2", "article h1", "article h2",
+        "h1", "h2", "title"
     ]:
         try:
             txt = page.locator(selector).first.inner_text(timeout=1500).strip()
-            if txt and len(txt) > 2:
+            if txt and len(txt) > 2 and txt.lower() not in {"beanfun", "maplestory"}:
                 title = txt
                 break
         except Exception:
             pass
 
+    if not title:
+        title = fallback_title or url
+
+    # 優先使用真正的公告容器；最後才退回 body。不要單純選「最長文字」，
+    # 因為最長的 body 往往包含整個網站導覽列與頁尾。
     candidates = []
     for selector in [
-        "main", ".board-view", ".bulletin", ".content",
-        "#content", "article", ".mBulletin-detail", "body"
+        ".board-view .content", ".board-view .article",
+        ".board-view", ".mBulletin-detail",
+        ".bulletin .content", ".bulletin .article",
+        ".bulletin", "article", "main", "#content", ".content"
     ]:
         try:
             txt = page.locator(selector).first.inner_text(timeout=2000).strip()
@@ -342,14 +390,16 @@ def extract_article(page, url, fallback_title=""):
         except Exception:
             pass
 
-    body = max(candidates, key=len) if candidates else ""
-
-    if not title or title.lower() in {"beanfun", "maplestory"}:
-        title = fallback_title or title or url
+    body = ""
+    for candidate in candidates:
+        cleaned = _clean_article_text(candidate, title)
+        if len(cleaned) > len(body):
+            body = cleaned
 
     if not body:
         try:
-            body = page.locator("body").inner_text(timeout=3000).strip()
+            raw = page.locator("body").inner_text(timeout=3000).strip()
+            body = _clean_article_text(raw, title)
         except Exception:
             body = ""
 
