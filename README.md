@@ -1,4 +1,4 @@
-# MapleStory 官方公告監控器 v19 — GitHub Actions 版
+# MapleStory 官方公告監控器 — GitHub Actions 版
 
 這一版是給 GitHub Actions 長期自動執行使用。電腦不需要開機，GitHub 會依排程啟動 Python，抓新楓之谷台灣官方公告、用 Gemini 整理，再送到 3 個 Discord Webhook。
 
