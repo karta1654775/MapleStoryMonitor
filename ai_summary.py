@@ -254,6 +254,46 @@ def summarize(title, body, url, category="general"):
     prompt = build_prompt(title, body, url, category)
     try:
         result, _model_used = _summarize_with_fallback(prompt)
+
+        # 維護／更新公告：不要因模型輸出的條列數、字數或小幅格式差異
+        # 把實際摘要直接丟掉。先擋掉明顯的內部工作筆記，再正常送出。
+        if category == "maintenance":
+            if result and not any(x in result for x in [
+                "二次檢查", "區塊 1", "區塊 2", "區塊 3", "區塊 4",
+                "上一版輸出", "重新整理整篇", "符合完整度要求",
+                "工作筆記", "格式檢查結果"
+            ]):
+                if _validate_summary(result, category):
+                    return result
+                print("維護公告摘要格式略有差異，改用乾淨重整；不因格式檢查直接丟棄。")
+
+            repair = _repair_prompt(title, body, url, category, "")
+            repaired, _repair_model = _summarize_with_fallback(repair)
+            if repaired and not any(x in repaired for x in [
+                "二次檢查", "區塊 1", "區塊 2", "區塊 3", "區塊 4",
+                "上一版輸出", "重新整理整篇", "符合完整度要求",
+                "工作筆記", "格式檢查結果"
+            ]):
+                if _validate_summary(repaired, category):
+                    return repaired
+                print("維護公告重整後格式略有差異，採用重整結果送出。")
+                return repaired
+
+            # 最後一次只有在真的沒有可用內容時才放棄。
+            print("維護公告第一次／第二次整理含有內部格式文字，進行最後一次乾淨重寫...")
+            final_result, _final_model = _summarize_with_fallback(_repair_prompt(title, body, url, category, ""))
+            if final_result and not any(x in final_result for x in [
+                "二次檢查", "區塊 1", "區塊 2", "區塊 3", "區塊 4",
+                "上一版輸出", "重新整理整篇", "符合完整度要求",
+                "工作筆記", "格式檢查結果"
+            ]):
+                print("維護公告採用最後一次乾淨摘要送出。")
+                return final_result
+
+            print("維護公告無法產生可用摘要，暫不送出。")
+            return None
+
+        # 一般／活動／商城公告維持原本的驗證與重整邏輯，不做變更。
         if _validate_summary(result, category):
             return result
 
@@ -263,26 +303,11 @@ def summarize(title, body, url, category="general"):
         if _validate_summary(repaired, category):
             return repaired
 
-        # 只有維護／更新公告再做一次乾淨重寫；其他公告維持原本行為。
-        if category == "maintenance":
-            print("維護公告第二次仍未通過格式檢查，進行最後一次乾淨重寫...")
-            final_result, _final_model = _summarize_with_fallback(_repair_prompt(title, body, url, category, ""))
-            if _validate_summary(final_result, category):
-                return final_result
-            # 最後保底：只要最後一次有完整四區塊且不是明顯工作筆記，
-            # 就送出，不再因字數／條列數的模型差異造成維護公告完全消失。
-            if final_result and all(x in final_result for x in ["📌 重點整理", "🗓️ 時間／期限", "🎁 活動／獎勵／商品", "⚠️ 注意事項"]):
-                print("維護公告格式接近標準但仍有細節差異，採用最後一次結果送出。")
-                return final_result
-            print("維護公告三次整理仍無法產生可用摘要，暫不送出。")
-            return None
-
         print("Gemini 二次整理仍未完全通過格式檢查，使用二次結果送出。")
         return repaired or result
     except Exception as e:
         print(f"Gemini 摘要失敗：{e}")
         return None
-
 
 def test_gemini():
     if not _api_key():
