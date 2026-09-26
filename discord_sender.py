@@ -6,6 +6,7 @@ def get_webhook(category):
         "general": "DISCORD_GENERAL_WEBHOOK",
         "shop": "DISCORD_SHOP_WEBHOOK",
         "maintenance": "DISCORD_MAINTENANCE_WEBHOOK",
+        "warframe": "DISCORD_WARFRAME_WEBHOOK",
     }
     return os.getenv(names.get(category, ""), "").strip()
 
@@ -66,8 +67,9 @@ def send_discord(category, title, summary, url):
         "general": "📢 一般公告",
         "shop": "🛒 商城公告",
         "maintenance": "🔧 維護公告",
+        "warframe": "🎮 Warframe 更新日誌",
     }
-    label = labels.get(category, "📢 新楓之谷公告")
+    label = labels.get(category, "📢 新公告")
 
     header = f"{label}\n\n**{title}**\n\n"
     footer = f"\n\n🔗 [官方公告]({url})"
