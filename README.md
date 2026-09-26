@@ -1,4 +1,4 @@
-# MapleStory 官方公告監控器 v24 — GitHub Actions 版
+# MapleStory 官方公告監控器— GitHub Actions 版
 
 這一版是給 GitHub Actions 長期自動執行使用。電腦不需要開機，GitHub 會依排程啟動 Python，抓新楓之谷台灣官方公告、用 Gemini 整理，再送到 3 個 Discord Webhook。
 
@@ -14,7 +14,7 @@
 `.github/workflows/monitor.yml` 已設定：
 
 - `workflow_dispatch`：可以在 GitHub 網頁手動執行。
-- 每 10 分鐘自動執行一次。
+- 每 5 分鐘自動執行一次。
 - 使用台北時區 `Asia/Taipei`。
 - 每次只跑一輪 `python monitor.py --scan-once`，跑完就結束。
 - GitHub Actions 使用 Playwright Chromium，不需要你的電腦安裝 Edge。
@@ -48,11 +48,11 @@ GitHub → 右上角 `+` → `New repository`
 - 不要勾選自動建立 README，因為這個 ZIP 已經有 README。
 - 按 `Create repository`。
 
-### 2. 上傳 v24 檔案
+### 2. 上傳 MapleStoryMonitor 檔案
 
-解壓 `MapleStoryMonitor_v24.zip`。
+解壓 `MapleStoryMonitor.zip`。
 
-進入解壓後的 `v24` 資料夾，把裡面的檔案與資料夾全部上傳到 Repository 最外層。
+進入解壓後的 `MapleStoryMonitor` 資料夾，把裡面的檔案與資料夾全部上傳到 Repository 最外層。
 
 Repository 根目錄應該直接看到：
 
@@ -258,7 +258,7 @@ GitHub Actions 應該使用：
 python monitor.py --scan-once
 ```
 
-由 GitHub 的 `schedule` 每 10 分鐘重新啟動一次。
+由 GitHub 的 `schedule` 每 5 分鐘重新啟動一次。
 
 ## 如果 Actions 顯示失敗
 
