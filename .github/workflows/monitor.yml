@@ -101,3 +101,4 @@ jobs:
           git add seen.json
           git commit -m "chore: update MapleStory seen state"
           git push
+
