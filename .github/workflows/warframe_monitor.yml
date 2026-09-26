@@ -1,7 +1,16 @@
 name: Warframe 更新日誌監控
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "選擇執行模式"
+        required: true
+        default: normal
+        type: choice
+        options:
+          - normal
+          - simulate
   schedule:
     - cron: "*/15 * * * *"
 
@@ -25,6 +34,7 @@ jobs:
       # 如果你的 RSS 網址跟程式裡的預設值不同，在這裡建一個 Variable 覆蓋，
       # 不要直接改 warframe_monitor.py。
       WARFRAME_RSS_URL: ${{ vars.WARFRAME_RSS_URL }}
+      RUN_MODE: ${{ inputs.mode || 'normal' }}
 
     steps:
       - name: 取得程式碼
@@ -39,33 +49,35 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
 
-      - name: 快取 Playwright Chromium
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
-          restore-keys: |
-            playwright-chromium-${{ runner.os }}-
-
       - name: 安裝 Python 套件
         run: python -m pip install -r requirements.txt
-
-      - name: 安裝 Playwright Chromium
-        run: python -m playwright install chromium
 
       - name: 檢查必要 Secrets
         shell: bash
         run: |
+          echo "執行模式：$RUN_MODE"
           test -n "$GEMINI_API_KEY" && echo "GEMINI_API_KEY: OK" || { echo "GEMINI_API_KEY: MISSING"; exit 1; }
           test -n "$DISCORD_WARFRAME_WEBHOOK" && echo "DISCORD_WARFRAME_WEBHOOK: OK" || { echo "DISCORD_WARFRAME_WEBHOOK: MISSING"; exit 1; }
 
       - name: 執行更新日誌監控
         shell: bash
-        run: python warframe_monitor.py --scan-once
+        run: |
+          if [ "$RUN_MODE" = "simulate" ]; then
+            echo "=== 模擬模式：抓取最新一篇更新日誌並送 Discord，不修改 seen.json ==="
+            python warframe_monitor.py --simulate
+          else
+            echo "=== 正常模式：只處理尚未通知的新更新日誌 ==="
+            python warframe_monitor.py --scan-once
+          fi
 
       - name: 儲存 warframe_seen.json
         shell: bash
         run: |
+          if [ "$RUN_MODE" = "simulate" ]; then
+            echo "模擬模式：不提交 warframe_seen.json。"
+            exit 0
+          fi
+
           if git diff --quiet -- warframe_seen.json; then
             echo "warframe_seen.json 沒有變更，不需要 commit。"
             exit 0
