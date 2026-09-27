@@ -7,6 +7,7 @@ def get_webhook(category):
         "shop": "DISCORD_SHOP_WEBHOOK",
         "maintenance": "DISCORD_MAINTENANCE_WEBHOOK",
         "warframe": "DISCORD_WARFRAME_WEBHOOK",
+        "lol": "DISCORD_LOL_WEBHOOK",
     }
     return os.getenv(names.get(category, ""), "").strip()
 
@@ -68,6 +69,7 @@ def send_discord(category, title, summary, url):
         "shop": "🛒 商城公告",
         "maintenance": "🔧 維護公告",
         "warframe": "🎮 Warframe 更新日誌",
+        "lol": "⚔️ 英雄聯盟版更公告",
     }
     label = labels.get(category, "📢 新公告")
 
