@@ -46,9 +46,12 @@ def _split_text(text, limit):
     return parts
 
 
-def _post_to_discord(webhook, content):
+def _post_to_discord(webhook, content, embeds=None):
+    payload = {"content": content}
+    if embeds:
+        payload["embeds"] = embeds
     try:
-        r = requests.post(webhook, json={"content": content}, timeout=30)
+        r = requests.post(webhook, json=payload, timeout=30)
         if r.status_code not in (200, 204):
             print(f"Discord 發送失敗：HTTP {r.status_code} {r.text[:500]}")
             return False
@@ -58,7 +61,7 @@ def _post_to_discord(webhook, content):
         return False
 
 
-def send_discord(category, title, summary, url):
+def send_discord(category, title, summary, url, image_url=None):
     webhook = get_webhook(category)
     if not webhook:
         print(f"未設定 {category} Discord Webhook")
@@ -82,10 +85,14 @@ def send_discord(category, title, summary, url):
 
     body_parts = _split_text(summary, body_limit)
 
+    # 圖片只需要附在第一則訊息上（Discord embed 圖片本身跟文字內容是分開的區塊，
+    # 附在後續分段訊息上只會重複顯示同一張圖，沒有意義）。
+    first_embeds = [{"image": {"url": image_url}}] if image_url else None
+
     # 內容夠短：維持原本單則訊息的行為。
     if len(body_parts) == 1:
         content = header + body_parts[0] + footer
-        ok = _post_to_discord(webhook, content)
+        ok = _post_to_discord(webhook, content, embeds=first_embeds)
         if ok:
             print(f"Discord 發送成功：{category}")
         return ok
@@ -101,7 +108,7 @@ def send_discord(category, title, summary, url):
         else:
             content = f"（{i}/{total}）\n" + part
 
-        ok = _post_to_discord(webhook, content)
+        ok = _post_to_discord(webhook, content, embeds=first_embeds if i == 1 else None)
         if not ok:
             print(f"Discord 發送失敗（第 {i}/{total} 則）")
             all_ok = False

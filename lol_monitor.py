@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import json
 from datetime import datetime
@@ -29,6 +30,11 @@ HEADERS = {
 
 # 確認過的內文容器（見 2026-09-26 對話中使用者貼的原始碼）。
 ARTICLE_CONTENT_SELECTOR = '[data-testid="rich-text-html"]'
+
+# 版本重點圖（「版本概要」小節那張大圖）用檔名裡的寬度篩選，
+# 排除作者頭像等小圖示；1920 寬的圖片一定會過這個門檻，
+# 頭像類的圖目前看到的最大也才 300 寬，兩者差距夠大，用寬度篩選足夠可靠。
+PATCH_IMAGE_MIN_WIDTH = 1200
 
 
 def load_seen():
@@ -108,8 +114,30 @@ def get_new_patches(seen):
     return list(reversed(new_items))
 
 
+def find_patch_chart_image(content_element, min_width=PATCH_IMAGE_MIN_WIDTH):
+    """在內文區塊裡找出版本重點圖（「版本概要」小節那張大圖）。
+
+    用檔名裡的寬度篩選：這類 CMS 圖檔名固定是 xxx-寬x高.副檔名，
+    作者頭像等小圖示目前看到最大只有 300 寬，版本重點圖是 1920 寬，
+    取內文中第一張過門檻的大圖，準確落在版本重點圖上，
+    不會被後面「新增造型」小節同樣是大圖的展示圖搶走（因為那些排在更後面）。
+    找不到就回傳 None，不當作錯誤處理。
+    """
+    for img in content_element.find_all("img"):
+        src = img.get("src", "")
+        if not src:
+            continue
+        m = re.search(r"-(\d+)x(\d+)\.\w+", src)
+        if not m:
+            continue
+        width = int(m.group(1))
+        if width >= min_width:
+            return src
+    return None
+
+
 def extract_patch_body(url):
-    """開啟版更公告頁面，抓「正文」的純文字內容。
+    """開啟版更公告頁面，回傳 (正文純文字, 版本重點圖網址或 None)。
 
     同一個 data-testid="rich-text-html" 也會出現在頁面下方「相關文章」
     卡片的簡短描述裡，所以這裡不是直接抓第一個符合的元素，
@@ -122,21 +150,23 @@ def extract_patch_body(url):
     candidates = soup.select(ARTICLE_CONTENT_SELECTOR)
     if not candidates:
         print("  找不到任何符合 rich-text-html 的區塊。")
-        return ""
+        return "", None
 
     best = max(candidates, key=lambda el: len(el.get_text(strip=True)))
     text = best.get_text("\n", strip=True)
+    image_url = find_patch_chart_image(best)
 
     print(f"  抓到內文長度：{len(text)} 字元（共比對 {len(candidates)} 個候選區塊）")
     if text:
         preview = text[:200].replace("\n", " ")
         print(f"  內文預覽：{preview}...")
-    return text
+    print(f"  版本重點圖：{image_url if image_url else '（沒找到，將只發文字）'}")
+    return text, image_url
 
 
 def process_one(title, url):
     print(f"  正在開啟：{url}")
-    body = extract_patch_body(url)
+    body, image_url = extract_patch_body(url)
     if not body:
         print("  內文抓取為空，跳過，不標記已讀（下次會重試）。")
         return False
@@ -148,7 +178,7 @@ def process_one(title, url):
         return False
 
     print(f"  摘要產生成功，長度：{len(summary)} 字元")
-    if not send_discord("lol", title, summary, url):
+    if not send_discord("lol", title, summary, url, image_url=image_url):
         print("  Discord 發送失敗，跳過，不標記已讀。")
         return False
 
