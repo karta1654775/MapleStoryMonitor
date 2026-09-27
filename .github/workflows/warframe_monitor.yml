@@ -11,8 +11,9 @@ on:
         options:
           - normal
           - simulate
+
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/15 * * * *"
 
 permissions:
   contents: write
@@ -30,10 +31,13 @@ jobs:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GEMINI_MODEL: gemini-3.6-flash
       GEMINI_FALLBACK_MODELS: gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite
+
       DISCORD_WARFRAME_WEBHOOK: ${{ secrets.DISCORD_WARFRAME_WEBHOOK }}
+
       # 如果你的 RSS 網址跟程式裡的預設值不同，在這裡建一個 Variable 覆蓋，
       # 不要直接改 warframe_monitor.py。
       WARFRAME_RSS_URL: ${{ vars.WARFRAME_RSS_URL }}
+
       RUN_MODE: ${{ inputs.mode || 'normal' }}
 
     steps:

@@ -11,8 +11,9 @@ on:
         options:
           - normal
           - simulate
+
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/10 * * * *"
       timezone: "Asia/Taipei"
 
 permissions:
@@ -31,17 +32,21 @@ jobs:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GEMINI_MODEL: gemini-3.6-flash
       GEMINI_FALLBACK_MODELS: gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite
+
       DISCORD_GENERAL_WEBHOOK: ${{ secrets.DISCORD_GENERAL_WEBHOOK }}
       DISCORD_SHOP_WEBHOOK: ${{ secrets.DISCORD_SHOP_WEBHOOK }}
       DISCORD_MAINTENANCE_WEBHOOK: ${{ secrets.DISCORD_MAINTENANCE_WEBHOOK }}
+
       MAPLE_BROWSER: chromium
       MAPLE_URL: https://maplestory.beanfun.com/Main
-      POLL_SECONDS: "300"
+      POLL_SECONDS: "600"
       MAX_NEW_PER_RUN: "10"
       API_SCAN_PAGES: "2"
+
       GENERAL_KEYWORDS: 職業,活動,燃燒
       SHOP_KEYWORDS: 商城
       MAINT_KEYWORDS: 維護,更新
+
       RUN_MODE: ${{ inputs.mode || 'normal' }}
 
     steps:
@@ -84,7 +89,7 @@ jobs:
         shell: bash
         run: |
           if [ "$RUN_MODE" = "simulate" ]; then
-            echo "=== 模擬模式：抓目前實際公告並送 Discord，不修改 seen.json ==="
+            echo "=== 模擬模式：抓取最新公告並送 Discord，不修改 seen.json ==="
             python monitor.py --simulate
           else
             echo "=== 正常模式：只處理尚未通知的新公告 ==="

@@ -12,8 +12,9 @@ on:
           - normal
           - force-latest
           - test-latest-3
+
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "*/20 * * * *"
 
 permissions:
   contents: write
@@ -31,8 +32,10 @@ jobs:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GEMINI_MODEL: gemini-3.6-flash
       GEMINI_FALLBACK_MODELS: gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite
+
       DISCORD_LOL_WEBHOOK: ${{ secrets.DISCORD_LOL_WEBHOOK }}
       LOL_LISTING_URL: ${{ vars.LOL_LISTING_URL }}
+
       RUN_MODE: ${{ inputs.mode || 'normal' }}
 
     steps:
@@ -62,10 +65,10 @@ jobs:
         shell: bash
         run: |
           if [ "$RUN_MODE" = "test-latest-3" ]; then
-            echo "=== 最新 3 版本測試模式：處理目前最新三篇，不修改 seen ==="
+            echo "=== 測試模式：抓取最新 3 篇公告 ==="
             python lol_monitor.py --test-latest-3
           elif [ "$RUN_MODE" = "force-latest" ]; then
-            echo "=== 強制測試模式：處理最新一篇，不修改 seen ==="
+            echo "=== 強制模式：抓取最新一篇公告並送 Discord ==="
             python lol_monitor.py --force-latest
           else
             echo "=== 正常模式：只處理尚未通知的新公告 ==="
@@ -75,11 +78,6 @@ jobs:
       - name: 儲存 lol_seen.json
         shell: bash
         run: |
-          if [ "$RUN_MODE" = "test-latest-3" ] || [ "$RUN_MODE" = "force-latest" ]; then
-            echo "測試模式：不會修改 lol_seen.json，不需要 commit。"
-            exit 0
-          fi
-
           if git diff --quiet -- lol_seen.json; then
             echo "lol_seen.json 沒有變更，不需要 commit。"
             exit 0
@@ -88,5 +86,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add lol_seen.json
-          git commit -m "chore: update LoL patch notes seen state"
+          git commit -m "chore: update LoL seen state"
           git push
