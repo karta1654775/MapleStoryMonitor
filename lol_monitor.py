@@ -214,6 +214,35 @@ def run_once():
     print(f"本輪成功發送 {processed} 篇。目前 seen：約 {len(seen)} 篇。")
 
 
+def run_test_latest_3():
+    """強制處理目前最新 3 篇版更，忽略 seen 狀態，方便一次測試版本重點圖。
+    不會修改 lol_seen.json。
+    """
+    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] === 最新 3 版本測試模式（不修改 seen）===")
+
+    items = get_patch_list()
+    if not items:
+        print("列表頁沒有抓到任何公告，流程中止。")
+        return
+
+    latest_items = items[:3]
+    print(f"目前抓到的最新 {len(latest_items)} 篇：")
+    for i, item in enumerate(latest_items, start=1):
+        print(f"  {i}. {item['title']} -> {item['url']}")
+
+    success = 0
+    for i, item in enumerate(latest_items, start=1):
+        print(f"\n===== 測試第 {i}/{len(latest_items)} 篇 =====")
+        try:
+            if process_one(item["title"], item["url"]):
+                success += 1
+        except Exception as e:
+            print(f"  處理失敗：{item['url']}\n  原因：{e}")
+
+    print(f"\n=== 最新 3 版本測試完成：成功發送 {success}/{len(latest_items)} 篇 ===")
+    print("=== lol_seen.json 未被修改 ===")
+
+
 def run_force_latest():
     """強制處理列表頁最新一篇，忽略 seen 狀態，方便測試。不會修改 lol_seen.json。"""
     print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] === 強制處理最新一篇（測試模式，不修改 seen）===")
@@ -232,6 +261,10 @@ def run_force_latest():
 
 
 def main():
+    if "--test-latest-3" in sys.argv:
+        run_test_latest_3()
+        return
+
     if "--force-latest" in sys.argv:
         run_force_latest()
         return
@@ -241,8 +274,9 @@ def main():
         return
 
     print("請使用以下其中一種模式執行：")
-    print("  python lol_monitor.py --scan-once     正常模式，只處理尚未通知的新公告")
-    print("  python lol_monitor.py --force-latest   強制處理最新一篇，用於測試，不修改 seen")
+    print("  python lol_monitor.py --scan-once       正常模式，只處理尚未通知的新公告")
+    print("  python lol_monitor.py --force-latest     強制處理最新一篇，用於測試，不修改 seen")
+    print("  python lol_monitor.py --test-latest-3   強制處理最新三篇版更，用於測試，不修改 seen")
 
 
 if __name__ == "__main__":
