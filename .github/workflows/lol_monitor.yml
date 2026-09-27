@@ -1,0 +1,65 @@
+name: 英雄聯盟版更公告監控
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 */6 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lol-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: gemini-3.6-flash
+      GEMINI_FALLBACK_MODELS: gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite
+      DISCORD_LOL_WEBHOOK: ${{ secrets.DISCORD_LOL_WEBHOOK }}
+      LOL_LISTING_URL: ${{ vars.LOL_LISTING_URL }}
+
+    steps:
+      - name: 取得程式碼
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: 設定 Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: 安裝 Python 套件
+        run: python -m pip install -r requirements.txt
+
+      - name: 檢查必要 Secrets
+        shell: bash
+        run: |
+          test -n "$GEMINI_API_KEY" && echo "GEMINI_API_KEY: OK" || { echo "GEMINI_API_KEY: MISSING"; exit 1; }
+          test -n "$DISCORD_LOL_WEBHOOK" && echo "DISCORD_LOL_WEBHOOK: OK" || { echo "DISCORD_LOL_WEBHOOK: MISSING"; exit 1; }
+
+      - name: 執行版更公告監控
+        shell: bash
+        run: python lol_monitor.py --scan-once
+
+      - name: 儲存 lol_seen.json
+        shell: bash
+        run: |
+          if git diff --quiet -- lol_seen.json; then
+            echo "lol_seen.json 沒有變更，不需要 commit。"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lol_seen.json
+          git commit -m "chore: update LoL patch notes seen state"
+          git push
