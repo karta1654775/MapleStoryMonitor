@@ -1,7 +1,16 @@
 name: 英雄聯盟版更公告監控
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "選擇執行模式"
+        required: true
+        default: normal
+        type: choice
+        options:
+          - normal
+          - force-latest
   schedule:
     - cron: "0 */6 * * *"
 
@@ -23,6 +32,7 @@ jobs:
       GEMINI_FALLBACK_MODELS: gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite
       DISCORD_LOL_WEBHOOK: ${{ secrets.DISCORD_LOL_WEBHOOK }}
       LOL_LISTING_URL: ${{ vars.LOL_LISTING_URL }}
+      RUN_MODE: ${{ inputs.mode || 'normal' }}
 
     steps:
       - name: 取得程式碼
@@ -43,16 +53,29 @@ jobs:
       - name: 檢查必要 Secrets
         shell: bash
         run: |
+          echo "執行模式：$RUN_MODE"
           test -n "$GEMINI_API_KEY" && echo "GEMINI_API_KEY: OK" || { echo "GEMINI_API_KEY: MISSING"; exit 1; }
           test -n "$DISCORD_LOL_WEBHOOK" && echo "DISCORD_LOL_WEBHOOK: OK" || { echo "DISCORD_LOL_WEBHOOK: MISSING"; exit 1; }
 
       - name: 執行版更公告監控
         shell: bash
-        run: python lol_monitor.py --scan-once
+        run: |
+          if [ "$RUN_MODE" = "force-latest" ]; then
+            echo "=== 強制測試模式：處理最新一篇，不修改 seen ==="
+            python lol_monitor.py --force-latest
+          else
+            echo "=== 正常模式：只處理尚未通知的新公告 ==="
+            python lol_monitor.py --scan-once
+          fi
 
       - name: 儲存 lol_seen.json
         shell: bash
         run: |
+          if [ "$RUN_MODE" = "force-latest" ]; then
+            echo "強制測試模式：不會修改 lol_seen.json，不需要 commit。"
+            exit 0
+          fi
+
           if git diff --quiet -- lol_seen.json; then
             echo "lol_seen.json 沒有變更，不需要 commit。"
             exit 0
