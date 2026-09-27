@@ -14,10 +14,7 @@ from lol_summary import summarize_lol
 from discord_sender import send_discord
 
 BASE_URL = "https://www.leagueoflegends.com"
-LISTING_URL = os.getenv(
-    "LOL_LISTING_URL",
-    "https://www.leagueoflegends.com/zh-tw/news/tags/patch-notes/",
-)
+LISTING_URL = os.getenv("LOL_LISTING_URL") or "https://www.leagueoflegends.com/zh-tw/news/tags/patch-notes/"
 
 SEEN_FILE = "lol_seen.json"
 MAX_NEW_PER_RUN = int(os.getenv("LOL_MAX_NEW_PER_RUN", "3"))
