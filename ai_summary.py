@@ -33,12 +33,12 @@ def _models():
     return result
 
 
-def _request(model, prompt):
+def _request(model, prompt, max_output_tokens=2200):
     key = _api_key()
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 2200},
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": max_output_tokens},
     }
 
     last_error = None
@@ -71,14 +71,14 @@ def _request(model, prompt):
     raise last_error or RuntimeError("Gemini 請求失敗")
 
 
-def _summarize_with_fallback(prompt):
+def _summarize_with_fallback(prompt, max_output_tokens=2200):
     errors = []
     models = _models()
     for index, model in enumerate(models, start=1):
         if index > 1:
             print(f"Gemini 模型 {models[index-2]} 暫時不可用，切換到 {model}（{index}/{len(models)}）...")
         try:
-            result = _request(model, prompt)
+            result = _request(model, prompt, max_output_tokens=max_output_tokens)
             if result:
                 print(f"Gemini 使用模型：{model}")
                 return result, model
