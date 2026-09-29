@@ -1,4 +1,5 @@
 import os
+import re
 import requests
 
 
@@ -17,36 +18,60 @@ def get_webhook(category):
 DISCORD_CONTENT_LIMIT = 2000
 
 
+def _hard_split(line, limit):
+    """單行過長時盡量在中文標點切開，避免 Discord 訊息從一句話中間硬斷。"""
+    parts = []
+    while len(line) > limit:
+        cut = limit
+        # 優先在標點後切，最多回看 120 字。
+        punct = "。！？；，、：)]}〉》」』）】"
+        lower = max(0, limit - 120)
+        for i in range(limit, lower, -1):
+            if line[i - 1] in punct:
+                cut = i
+                break
+        parts.append(line[:cut])
+        line = line[cut:]
+    if line:
+        parts.append(line)
+    return parts
+
+
 def _split_text(text, limit):
     if len(text) <= limit:
         return [text]
 
     parts = []
     current = ""
-    for line in text.split("\n"):
-        while len(line) > limit:
+    for line in text.splitlines():
+        if len(line) > limit:
             if current:
                 parts.append(current)
                 current = ""
-            parts.append(line[:limit])
-            line = line[limit:]
+            parts.extend(_hard_split(line, limit))
+            continue
 
         candidate = f"{current}\n{line}" if current else line
-        if len(candidate) > limit:
-            parts.append(current)
-            current = line
-        else:
+        if len(candidate) <= limit:
             current = candidate
+            continue
+
+        if current:
+            parts.append(current)
+        current = line
 
     if current:
         parts.append(current)
     return parts
 
 
-def _post_to_discord(webhook, content, embeds=None):
+def _post_to_discord(webhook, content, embeds=None, suppress_embeds=False):
     payload = {"content": content}
     if embeds:
         payload["embeds"] = embeds
+    if suppress_embeds and not embeds:
+        # Discord MESSAGE_FLAG_SUPPRESS_EMBEDS = 4；保留 markdown 連結但不顯示網頁預覽。
+        payload["flags"] = 4
     try:
         r = requests.post(webhook, json=payload, timeout=30)
         if r.status_code not in (200, 204):
@@ -76,14 +101,19 @@ def send_discord(category, title, summary, url, image_url=None):
 
     header = f"{label}\n\n**{title}**\n\n"
     footer = f"\n\n🔗 [官方公告]({url})"
-    reserve = len(header) + len(footer) + 20
+    reserve = len(header) + len(footer) + 40
     body_limit = max(DISCORD_CONTENT_LIMIT - reserve, 500)
 
     body_parts = _split_text(summary, body_limit)
     first_embeds = [{"image": {"url": image_url}}] if image_url else None
 
     if len(body_parts) == 1:
-        return _post_to_discord(webhook, header + body_parts[0] + footer, embeds=first_embeds)
+        return _post_to_discord(
+            webhook,
+            header + body_parts[0] + footer,
+            embeds=first_embeds,
+            suppress_embeds=True,
+        )
 
     total = len(body_parts)
     all_ok = True
@@ -95,7 +125,12 @@ def send_discord(category, title, summary, url, image_url=None):
         else:
             content = f"（{i}/{total}）\n" + part
 
-        ok = _post_to_discord(webhook, content, embeds=first_embeds if i == 1 else None)
+        ok = _post_to_discord(
+            webhook,
+            content,
+            embeds=first_embeds if i == 1 else None,
+            suppress_embeds=(i != 1 or not first_embeds),
+        )
         if not ok:
             print(f"Discord 發送失敗（第 {i}/{total} 則）")
             all_ok = False
