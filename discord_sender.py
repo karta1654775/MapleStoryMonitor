@@ -1,6 +1,7 @@
 import os
 import requests
 
+
 def get_webhook(category):
     names = {
         "general": "DISCORD_GENERAL_WEBHOOK",
@@ -8,25 +9,21 @@ def get_webhook(category):
         "maintenance": "DISCORD_MAINTENANCE_WEBHOOK",
         "warframe": "DISCORD_WARFRAME_WEBHOOK",
         "lol": "DISCORD_LOL_WEBHOOK",
+        "valorant": "DISCORD_VALORANT_WEBHOOK",
     }
     return os.getenv(names.get(category, ""), "").strip()
-
 
 
 DISCORD_CONTENT_LIMIT = 2000
 
 
 def _split_text(text, limit):
-    """把長文字依換行切成多塊，每塊長度不超過 limit。
-    盡量在整行的邊界切開，避免把一個條列項目從中間切斷。
-    """
     if len(text) <= limit:
         return [text]
 
     parts = []
     current = ""
     for line in text.split("\n"):
-        # 單一行本身就超過 limit 的極端狀況，直接強制切割該行。
         while len(line) > limit:
             if current:
                 parts.append(current)
@@ -73,31 +70,21 @@ def send_discord(category, title, summary, url, image_url=None):
         "maintenance": "🔧 維護公告",
         "warframe": "🎮 Warframe 更新日誌",
         "lol": "⚔️ 英雄聯盟版更公告",
+        "valorant": "🎯 特戰英豪版本更新",
     }
     label = labels.get(category, "📢 新公告")
 
     header = f"{label}\n\n**{title}**\n\n"
     footer = f"\n\n🔗 [官方公告]({url})"
-
-    # 保留給 header／footer／分段標示的空間，避免切完之後單則又超過 Discord 上限。
     reserve = len(header) + len(footer) + 20
     body_limit = max(DISCORD_CONTENT_LIMIT - reserve, 500)
 
     body_parts = _split_text(summary, body_limit)
-
-    # 圖片只需要附在第一則訊息上（Discord embed 圖片本身跟文字內容是分開的區塊，
-    # 附在後續分段訊息上只會重複顯示同一張圖，沒有意義）。
     first_embeds = [{"image": {"url": image_url}}] if image_url else None
 
-    # 內容夠短：維持原本單則訊息的行為。
     if len(body_parts) == 1:
-        content = header + body_parts[0] + footer
-        ok = _post_to_discord(webhook, content, embeds=first_embeds)
-        if ok:
-            print(f"Discord 發送成功：{category}")
-        return ok
+        return _post_to_discord(webhook, header + body_parts[0] + footer, embeds=first_embeds)
 
-    # 內容過長：分成多則依序發送，而不是截斷內容。
     total = len(body_parts)
     all_ok = True
     for i, part in enumerate(body_parts, start=1):
@@ -113,14 +100,12 @@ def send_discord(category, title, summary, url, image_url=None):
             print(f"Discord 發送失敗（第 {i}/{total} 則）")
             all_ok = False
 
-    if all_ok:
-        print(f"Discord 發送成功：{category}（共 {total} 則訊息）")
     return all_ok
 
 
 def test_webhooks():
     results = {}
-    for category in ("general", "shop", "maintenance"):
+    for category in ("general", "shop", "maintenance", "warframe", "lol", "valorant"):
         webhook = get_webhook(category)
         if not webhook:
             results[category] = False
