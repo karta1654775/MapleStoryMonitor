@@ -65,13 +65,10 @@ def _split_text(text, limit):
     return parts
 
 
-def _post_to_discord(webhook, content, embeds=None, suppress_embeds=False):
+def _post_to_discord(webhook, content, embeds=None):
     payload = {"content": content}
     if embeds:
         payload["embeds"] = embeds
-    if suppress_embeds and not embeds:
-        # Discord MESSAGE_FLAG_SUPPRESS_EMBEDS = 4；保留 markdown 連結但不顯示網頁預覽。
-        payload["flags"] = 4
     try:
         r = requests.post(webhook, json=payload, timeout=30)
         if r.status_code not in (200, 204):
@@ -112,7 +109,6 @@ def send_discord(category, title, summary, url, image_url=None):
             webhook,
             header + body_parts[0] + footer,
             embeds=first_embeds,
-            suppress_embeds=True,
         )
 
     total = len(body_parts)
@@ -129,7 +125,6 @@ def send_discord(category, title, summary, url, image_url=None):
             webhook,
             content,
             embeds=first_embeds if i == 1 else None,
-            suppress_embeds=(i != 1 or not first_embeds),
         )
         if not ok:
             print(f"Discord 發送失敗（第 {i}/{total} 則）")

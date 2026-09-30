@@ -17,7 +17,7 @@ VALORANT_OUTPUT_TOKENS = 6500
 MAX_SOURCE_CHARS = 100000
 
 
-def build_valorant_prompt(title, body, url):
+def build_valorant_prompt(title, body, url, english_weapon_reference=""):
     return f"""你是《特戰英豪》台灣繁體中文官方版本更新公告的 Discord 懶人包整理助手。
 
 這是一篇 Riot Games 官方版本更新公告。你的任務是把超長 Patch Notes 整理成「完整、可快速掃讀、重要資訊不遺漏」的 Discord 懶人包。
@@ -38,8 +38,17 @@ def build_valorant_prompt(title, body, url):
 標題：{title}
 網址：{url}
 
-【官方公告原文】
+【台灣繁中官方公告原文】
 {body[:MAX_SOURCE_CHARS]}
+
+【英文官方武器名稱對照（僅供專有名詞核對）】
+{english_weapon_reference[:20000] if english_weapon_reference else "（未取得英文武器段落；仍以繁中官方公告為主要依據。）"}
+
+【專有名詞格式要求】
+- 如果「🔫 武器」區塊出現本版本「新增武器」，第一次提到時請使用「繁中官方名稱（Official English Name）」格式。
+- 例如本版本的「守望者」第一次出現應寫成「守望者（Warden）」；之後同一則摘要可直接使用「守望者」。
+- 英文名稱必須以英文官方武器段落為準；不要自行翻譯英文名稱。
+- 既有武器只是數值調整時，不必每次都附英文名稱，除非原文有歧義。
 
 【固定輸出格式】
 只能輸出以下 7 個區塊，第一行必須是「📌 本次重點」，不要輸出其他開場或結語。
@@ -128,7 +137,7 @@ def _validate_valorant_summary(summary):
     return True
 
 
-def _repair_prompt(title, body, url, previous):
+def _repair_prompt(title, body, url, previous, english_weapon_reference=""):
     return f"""你是《特戰英豪》台灣繁中官方版本更新公告整理助手。
 上一版摘要不完整或被截斷。請重新完整讀取官方原文，直接產生可貼到 Discord 的完整懶人包。
 
@@ -136,8 +145,15 @@ def _repair_prompt(title, body, url, previous):
 標題：{title}
 網址：{url}
 
-【原文】
+【台灣繁中官方原文】
 {body[:MAX_SOURCE_CHARS]}
+
+【英文官方武器名稱對照】
+{english_weapon_reference[:20000] if english_weapon_reference else "（未取得英文武器段落。）"}
+
+【武器名稱格式】
+- 本版本新增武器第一次出現時，用「繁中官方名稱（Official English Name）」格式，例如「守望者（Warden）」。
+- 英文名稱只能依英文官方武器段落，不能自行翻譯。
 
 【只輸出這 7 區】
 📌 本次重點
@@ -173,12 +189,12 @@ def _repair_prompt(title, body, url, previous):
 """
 
 
-def summarize_valorant(title, body, url):
+def summarize_valorant(title, body, url, english_weapon_reference=""):
     if not _api_key():
         print("Gemini 摘要失敗：未設定 GEMINI_API_KEY")
         return None
 
-    prompt = build_valorant_prompt(title, body, url)
+    prompt = build_valorant_prompt(title, body, url, english_weapon_reference)
     try:
         # VALORANT Patch Notes 通常遠長於其他公告；提高輸出上限，避免只完成前幾個重點就截斷。
         result, model_used = _summarize_with_fallback(prompt, max_output_tokens=VALORANT_OUTPUT_TOKENS)
@@ -188,7 +204,7 @@ def summarize_valorant(title, body, url):
 
         print("VALORANT 摘要不完整／格式不足，進行完整重整...")
         repaired, repair_model = _summarize_with_fallback(
-            _repair_prompt(title, body, url, result or ""),
+            _repair_prompt(title, body, url, result or "", english_weapon_reference),
             max_output_tokens=VALORANT_OUTPUT_TOKENS,
         )
         print(f"VALORANT 重整摘要使用模型：{repair_model}")
@@ -198,7 +214,7 @@ def summarize_valorant(title, body, url):
         # 第二次重整仍不完整就再試一次，但不把明顯截斷的結果發到 Discord。
         print("VALORANT 第二次摘要仍未完整，進行最後一次完整生成...")
         final, final_model = _summarize_with_fallback(
-            _repair_prompt(title, body, url, repaired or result or ""),
+            _repair_prompt(title, body, url, repaired or result or "", english_weapon_reference),
             max_output_tokens=VALORANT_OUTPUT_TOKENS,
         )
         print(f"VALORANT 最後摘要使用模型：{final_model}")

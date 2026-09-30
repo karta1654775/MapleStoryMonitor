@@ -90,15 +90,15 @@ def get_patch_list():
     return items
 
 
-def extract_patch_body(url):
-    """抓官方繁中版本更新全文。"""
+def extract_patch_body(url, label="官方版本更新"):
+    """抓 Riot 官方版本更新全文。"""
     resp = requests.get(url, headers=HEADERS, timeout=30)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
 
     candidates = soup.select(ARTICLE_CONTENT_SELECTOR)
     if not candidates:
-        print("  找不到 rich-text-html 正文容器。")
+        print(f"  找不到 {label} rich-text-html 正文容器。")
         return ""
 
     # Riot 頁面可能在相關文章也出現相同 data-testid；取文字量最大的正文容器。
@@ -109,19 +109,62 @@ def extract_patch_body(url):
         tag.decompose()
 
     text = best.get_text("\n", strip=True)
-    print(f"  抓到正文：{len(text)} 字元。")
+    print(f"  抓到{label}正文：{len(text)} 字元。")
     return text
+
+
+def _english_url(url):
+    """將 Riot 台灣繁中公告 URL 轉成英文官方同篇公告 URL。"""
+    return url.replace("/zh-tw/", "/en-us/", 1)
+
+
+def _extract_weapon_reference(english_body):
+    """只保留英文公告中的武器段落，供 AI 核對新增武器英文名稱。"""
+    if not english_body:
+        return ""
+    lines = english_body.splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        normalized = " ".join(line.strip().upper().split())
+        if normalized in {"WEAPONS UPDATES", "WEAPON UPDATES"} or normalized.endswith("WEAPONS UPDATES"):
+            start = i
+            break
+    if start is None:
+        return ""
+
+    end = len(lines)
+    for i in range(start + 1, len(lines)):
+        normalized = " ".join(lines[i].strip().upper().split())
+        if normalized.startswith("# ") and normalized not in {"# WEAPONS UPDATES", "# WEAPON UPDATES"}:
+            end = i
+            break
+        if normalized in {"AGENT UPDATES", "MAP UPDATES", "COMPETITIVE UPDATES", "BUG FIXES", "GENERAL UPDATES", "PLAYER BEHAVIOR UPDATES", "PROGRESSION UPDATES", "SOCIAL UPDATES", "PERFORMANCE UPDATES", "ESPORTS FEATURES"}:
+            end = i
+            break
+    return "\n".join(lines[start:end]).strip()[:20000]
 
 
 def process_one(title, url, mark_seen=True, seen=None):
     print(f"  開啟：{url}")
-    body = extract_patch_body(url)
+    body = extract_patch_body(url, label="繁中官方")
     if not body:
         print("  正文抓取為空，跳過，不標記已讀。")
         return False
 
+    english_weapon_reference = ""
+    en_url = _english_url(url)
+    try:
+        english_body = extract_patch_body(en_url, label="英文官方")
+        english_weapon_reference = _extract_weapon_reference(english_body)
+        if english_weapon_reference:
+            print(f"  已取得英文武器名稱對照：{len(english_weapon_reference)} 字元。")
+        else:
+            print("  英文官方頁未找到武器段落，改以繁中公告處理。")
+    except Exception as e:
+        print(f"  英文官方頁讀取失敗，仍使用繁中公告：{e}")
+
     print("  呼叫 Gemini 產生 VALORANT 懶人包...")
-    summary = summarize_valorant(title, body, url)
+    summary = summarize_valorant(title, body, url, english_weapon_reference=english_weapon_reference)
     if not summary:
         print("  Gemini 沒有產生摘要，跳過，不標記已讀。")
         return False
