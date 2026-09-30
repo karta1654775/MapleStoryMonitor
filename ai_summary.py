@@ -33,7 +33,7 @@ def _models():
     return result
 
 
-def _request(model, prompt, max_output_tokens=2200):
+def _request(model, prompt, max_output_tokens=8192):
     key = _api_key()
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     payload = {
@@ -56,7 +56,10 @@ def _request(model, prompt, max_output_tokens=2200):
             if r.ok:
                 data = r.json()
                 try:
-                    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                    candidate = data["candidates"][0]
+                    text = candidate["content"]["parts"][0]["text"].strip()
+                    finish_reason = candidate.get("finishReason", "")
+                    return text, finish_reason
                 except Exception:
                     raise RuntimeError(f"Gemini 回傳格式異常：{str(data)[:1200]}")
 
@@ -71,14 +74,19 @@ def _request(model, prompt, max_output_tokens=2200):
     raise last_error or RuntimeError("Gemini 請求失敗")
 
 
-def _summarize_with_fallback(prompt, max_output_tokens=2200):
+def _summarize_with_fallback(prompt, max_output_tokens=8192):
     errors = []
     models = _models()
     for index, model in enumerate(models, start=1):
         if index > 1:
             print(f"Gemini 模型 {models[index-2]} 暫時不可用，切換到 {model}（{index}/{len(models)}）...")
         try:
-            result = _request(model, prompt, max_output_tokens=max_output_tokens)
+            result, finish_reason = _request(model, prompt, max_output_tokens=max_output_tokens)
+            if finish_reason == "MAX_TOKENS":
+                # 輸出被輸出長度上限腰斬，內容不完整，不能當成正常結果使用。
+                print(f"Gemini {model} 輸出被 token 上限截斷（finishReason=MAX_TOKENS），視為此次嘗試失敗。")
+                errors.append(f"{model}: 輸出被截斷（MAX_TOKENS），內容不完整")
+                continue
             if result:
                 print(f"Gemini 使用模型：{model}")
                 return result, model
