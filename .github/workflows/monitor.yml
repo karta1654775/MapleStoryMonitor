@@ -11,6 +11,9 @@ on:
         options:
           - normal
           - simulate
+          - simulate-general
+          - simulate-shop
+          - simulate-maintenance
 
   schedule:
     - cron: "*/10 * * * *"
@@ -88,21 +91,38 @@ jobs:
       - name: 執行公告監控
         shell: bash
         run: |
-          if [ "$RUN_MODE" = "simulate" ]; then
-            echo "=== 模擬模式：抓取最新公告並送 Discord，不修改 seen.json ==="
-            python monitor.py --simulate
-          else
-            echo "=== 正常模式：只處理尚未通知的新公告 ==="
-            python monitor.py --scan-once
-          fi
+          case "$RUN_MODE" in
+            simulate)
+              echo "=== 模擬模式：回放三個分流各最新公告，不修改 seen.json ==="
+              python monitor.py --simulate
+              ;;
+            simulate-general)
+              echo "=== 模擬模式：只回放「一般／活動」分流最新公告，不修改 seen.json ==="
+              python monitor.py --simulate-general
+              ;;
+            simulate-shop)
+              echo "=== 模擬模式：只回放「商城」分流最新公告，不修改 seen.json ==="
+              python monitor.py --simulate-shop
+              ;;
+            simulate-maintenance)
+              echo "=== 模擬模式：只回放「維護／更新」分流最新公告，不修改 seen.json ==="
+              python monitor.py --simulate-maintenance
+              ;;
+            *)
+              echo "=== 正常模式：只處理尚未通知的新公告 ==="
+              python monitor.py --scan-once
+              ;;
+          esac
 
       - name: 儲存 seen.json
         shell: bash
         run: |
-          if [ "$RUN_MODE" = "simulate" ]; then
-            echo "模擬模式：不提交 seen.json。"
-            exit 0
-          fi
+          case "$RUN_MODE" in
+            simulate*)
+              echo "模擬模式（$RUN_MODE）：不提交 seen.json。"
+              exit 0
+              ;;
+          esac
 
           if git diff --quiet -- seen.json; then
             echo "seen.json 沒有變更，不需要 commit。"
