@@ -497,14 +497,21 @@ def run_force_bid(bid):
         finally:
             browser.close()
 
-def run_simulate():
-    """抓取目前掃描範圍內各分流最新的一篇實際公告並發送到 Discord。
+def run_simulate(categories=None):
+    """抓取目前掃描範圍內指定分流最新的一篇實際公告並發送到 Discord。
 
     這是「真實公告回放」而非假訊息測試：會抓官方公告正文、交給 Gemini 摘要，
     再送到對應 Webhook；不讀取 seen 來阻擋，也不修改 seen.json。
+
+    categories：要回放的分流，預設 None 代表三個分流都測；
+    也可以只傳一個分流（例如 ("maintenance",)）單獨測試。
     """
-    print("\n=== 實際公告回放模式（不修改 seen.json） ===")
-    print("將從目前官方 API 掃描結果中，各分流選最新 1 篇實際公告。")
+    if categories is None:
+        categories = ("general", "shop", "maintenance")
+
+    label = "/".join(categories)
+    print(f"\n=== 實際公告回放模式：{label}（不修改 seen.json） ===")
+    print(f"將從目前官方 API 掃描結果中，{label} 分流各選最新 1 篇實際公告。")
 
     with sync_playwright() as p:
         browser = launch_browser(p)
@@ -519,16 +526,15 @@ def run_simulate():
                 if not is_supported_url(url):
                     continue
                 category = classify(item.get("title", ""), item.get("categoryId"))
-                if not category:
+                if not category or category not in categories:
                     continue
                 # extract_bulletins 已按日期/bid 由新到舊排序，因此第一次遇到的就是最新。
                 latest.setdefault(category, item)
 
-            order = ("general", "shop", "maintenance")
             found_count = 0
             success_count = 0
 
-            for category in order:
+            for category in categories:
                 item = latest.get(category)
                 if not item:
                     print(f"\n[{category}] 找不到目前掃描範圍內符合條件的公告。")
@@ -724,6 +730,18 @@ def main():
         run_unsee_bids(sys.argv[i + 1])
         return
 
+    if "--simulate-general" in sys.argv:
+        run_simulate(categories=("general",))
+        return
+
+    if "--simulate-shop" in sys.argv:
+        run_simulate(categories=("shop",))
+        return
+
+    if "--simulate-maintenance" in sys.argv:
+        run_simulate(categories=("maintenance",))
+        return
+
     if "--simulate" in sys.argv:
         run_simulate()
         return
@@ -746,6 +764,7 @@ def main():
     print(" urlLink 有官方活動頁時直接抓活動頁正文，無 urlLink 才使用 bid 公告頁")
     print(" 支援 --scan-once：只執行一輪後結束")
     print(" 支援 --simulate：回放目前各分流最新實際公告，不修改 seen.json")
+    print(" 支援 --simulate-general／--simulate-shop／--simulate-maintenance：只回放單一分流最新公告，不修改 seen.json")
     print(" 支援 --unsee-bid：移除指定公告的 seen，可重新測試")
     print(" Gemini / Discord 失敗時不會誤標記 seen")
     print("=" * 50)
