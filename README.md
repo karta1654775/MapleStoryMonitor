@@ -1,315 +1,184 @@
-# MapleStory 官方公告監控器— GitHub Actions 版
+# MapleStoryMonitor — 多遊戲公告監控機器人
 
-這一版是給 GitHub Actions 長期自動執行使用。電腦不需要開機，GitHub 會依排程啟動 Python，抓新楓之谷台灣官方公告、用 Gemini 整理，再送到 3 個 Discord Webhook。
+自動監控多款遊戲的官方公告／版更訊息，用 Gemini AI 整理成 Discord 懶人包，依排程推播到對應頻道。全部跑在 GitHub Actions 上，不需要自己開機器。
 
-## 目前分流規則
+目前監控中：
 
-- 📢 一般：官方分類 `72` 的所有活動公告；但標題含「商城」者改送商城。另有標題含 `職業`、`活動`、`燃燒` 的非 72 公告也會送一般。
-- 🛒 商城：標題含 `商城`。
-- 🔧 維護：官方分類 `67`，或標題含 `維護`、`更新`。
-- 其他分類且不符合以上規則：不發送。
+| 遊戲 | 程式 | 抓取方式 | 排程 |
+|---|---|---|---|
+| 🍁 新楓之谷 | `monitor.py` | Playwright + 官方 BulletinProxy API，分一般／商城／維護三個分流 | 每 10 分鐘 |
+| 🎮 Warframe | `warframe_monitor.py` | 直接讀官方論壇 RSS 的 `description` 欄位（純文字請求，不開瀏覽器） | 每 15 分鐘 |
+| ⚔️ 英雄聯盟 | `lol_monitor.py` | requests + BeautifulSoup 抓官方繁中版更頁面，含版本重點圖 | 每 15 分鐘 |
+| 🎯 特戰英豪 VALORANT | `valorant_monitor.py` | requests + BeautifulSoup 抓官方繁中版更頁面，另外交叉比對英文版抓武器英文名稱 | 每 15 分鐘 |
 
-## GitHub Actions 執行方式
+四支監控抓取邏輯各自獨立，但共用同一套 Gemini 摘要底層與 Discord 發送邏輯。
 
-`.github/workflows/monitor.yml` 已設定：
+---
 
-- `workflow_dispatch`：可以在 GitHub 網頁手動執行。
-- 每 5 分鐘自動執行一次。
-- 使用台北時區 `Asia/Taipei`。
-- 每次只跑一輪 `python monitor.py --scan-once`，跑完就結束。
-- GitHub Actions 使用 Playwright Chromium，不需要你的電腦安裝 Edge。
-- 成功發送後更新 `seen.json`，再由 GitHub Actions 自動 commit 回 repository，避免下次重複通知。
-- 使用 concurrency 避免前一次執行還沒結束時又同時處理同一批公告。
+## 整體架構
 
-GitHub 的 scheduled workflow 最短排程間隔為 5 分鐘；排程以預設分支最新 commit 執行，而且高負載時可能延遲。這個專案使用 10 分鐘間隔。 
+```
+GitHub Actions 排程
+   ↓
+抓公告列表（API／RSS／網頁）
+   ↓
+比對 seen 狀態，篩出尚未通知的新公告
+   ↓
+抓公告正文（VALORANT 另外交叉比對英文版武器名稱）
+   ↓
+Gemini 依各遊戲專屬 prompt 整理成固定格式懶人包
+   ↓
+送到對應 Discord Webhook（超過 2000 字自動分段，不截斷）
+   ↓
+更新 seen 檔案，GitHub Actions 自動 commit 回 repository
+```
+
+四支監控共用 `ai_summary.py` 的底層邏輯（Gemini 呼叫 + 模型 fallback）和 `discord_sender.py`（Discord 發送邏輯），各自的抓取、分類與摘要 prompt 則獨立成對應檔案。
+
+---
+
+## 檔案結構
+
+```
+MapleStoryMonitor/
+├─ .github/workflows/
+│  ├─ monitor.yml              ← 楓之谷排程
+│  ├─ warframe_monitor.yml     ← Warframe 排程
+│  ├─ lol_monitor.yml          ← LoL 排程
+│  └─ valorant_monitor.yml     ← VALORANT 排程
+├─ monitor.py                     ← 楓之谷主程式
+├─ warframe_monitor.py            ← Warframe 主程式
+├─ lol_monitor.py                  ← LoL 主程式
+├─ valorant_monitor.py              ← VALORANT 主程式
+├─ ai_summary.py                     ← 共用：Gemini 摘要底層（楓之谷直接使用）
+├─ warframe_summary.py               ← Warframe 專用摘要 prompt
+├─ lol_summary.py                    ← LoL 專用摘要 prompt
+├─ valorant_summary.py               ← VALORANT 專用摘要 prompt
+├─ discord_sender.py                 ← 共用：Discord 發送（含分段、圖片 embed）
+├─ seen.json / warframe_seen.json / lol_seen.json / valorant_seen.json  ← 各自的去重狀態
+├─ requirements.txt
+├─ .env.example                      ← 本機測試用環境變數範本
+├─ .gitignore
+└─ run_monitor.bat                   ← 本機一鍵啟動（楓之谷）
+```
+
+---
 
 ## 需要設定的 GitHub Secrets
 
-Repository → Settings → Secrets and variables → Actions → Secrets → New repository secret
-
-建立以下 4 個：
-
-1. `GEMINI_API_KEY`
-2. `DISCORD_GENERAL_WEBHOOK`
-3. `DISCORD_SHOP_WEBHOOK`
-4. `DISCORD_MAINTENANCE_WEBHOOK`
-
-不要把真正的 API Key 或 Discord Webhook 寫進 GitHub repository 的程式碼、README 或 `.env`。本專案的 `.gitignore` 已忽略 `.env`。
-
-## GitHub 新手設定步驟
-
-### 1. 建立 Repository
-
-GitHub → 右上角 `+` → `New repository`
-
-建議：
-- Repository name：`MapleStoryMonitor`
-- 可選 `Private`，不需要公開程式碼。
-- 不要勾選自動建立 README，因為這個 ZIP 已經有 README。
-- 按 `Create repository`。
-
-### 2. 上傳 MapleStoryMonitor 檔案
-
-解壓 `MapleStoryMonitor.zip`。
-
-進入解壓後的 `MapleStoryMonitor` 資料夾，把裡面的檔案與資料夾全部上傳到 Repository 最外層。
-
-Repository 根目錄應該直接看到：
-
-```text
-MapleStoryMonitor/
-├─ .github/
-│  └─ workflows/
-│     └─ monitor.yml
-├─ monitor.py
-├─ ai_summary.py
-├─ discord_sender.py
-├─ requirements.txt
-├─ seen.json
-├─ .env.example
-├─ .gitignore
-└─ README.md
-```
-
-不要把整個 `v24` 資料夾再包一層上傳；`monitor.py` 應該直接在 Repository 根目錄。
-
-### 3. 設定 Secrets
-
-進入 Repository → `Settings` → 左側 `Secrets and variables` → `Actions` → `Secrets` → `New repository secret`。
-
-依序建立：
-
-```text
-GEMINI_API_KEY
-DISCORD_GENERAL_WEBHOOK
-DISCORD_SHOP_WEBHOOK
-DISCORD_MAINTENANCE_WEBHOOK
-```
-
-Value 分別貼入你現在使用的 Gemini API Key，以及 3 個 Discord Webhook 完整網址。
-
-建立後 GitHub 只會顯示 Secret 名稱，不會讓你重新看到完整值；這是正常的。
-
-### 4. 確認 Actions 有寫入權限
-
-這個專案需要 GitHub Actions 把更新後的 `seen.json` commit 回 Repository。
-
-到：
-
-`Settings` → `Actions` → `General`
-
-找到 `Workflow permissions`。
-
-如果看到可以選：
-
-`Read and write permissions`
-
-請選它並按 `Save`。
-
-Workflow 本身也已經寫入：
-
-```yaml
-permissions:
-  contents: write
-```
-
-所以只有 repository contents 的寫入權限，不需要額外建立 GitHub Personal Access Token。
-
-### 5. 第一次手動測試
-
-進入 Repository → 上方 `Actions`。
-
-左側找到：
-
-`MapleStory 公告監控`
-
-第一次可能會看到 GitHub 要求啟用 workflow，依畫面按啟用即可。
-
-右側按 `Run workflow` → 選預設分支 → `Run workflow`。
-
-等待幾秒後，下面會出現一筆執行紀錄。
-
-點進去後看到：
-
-```text
-取得程式碼
-設定 Python
-安裝 Python 套件
-安裝 Playwright Chromium
-執行一次公告檢查
-儲存 seen.json
-```
-
-全部出現綠色勾勾，就代表 GitHub Actions 本身成功執行。
-
-### 6. 確認 Discord
-
-如果剛好有新的、尚未記錄在 `seen.json` 的符合條件公告，會直接送到對應 Discord。
-
-如果目前沒有新公告，Actions 仍然會成功，只是 Discord 不會收到訊息。
-
-這是正常的。
-
-### 7. 確認 seen.json 是否自動保存
-
-如果本輪真的發送了新公告，Actions 最後一步會 commit：
-
-```text
-chore: update MapleStory seen state
-```
-
-回 Repository 的 `seen.json` 查看，就會看到新的 `bid:xxxxx`。
-
-如果沒有新公告，沒有 commit 也是正常的。
-
-## 正常運作後
-
-你不需要再開電腦，也不需要讓 CMD 一直開著。
-
-GitHub Actions 會：
-
-```text
-每 10 分鐘
-   ↓
-GitHub Runner 啟動
-   ↓
-抓官方公告 API
-   ↓
-找尚未通知的公告
-   ↓
-抓官方正文
-   ↓
-Gemini 整理懶人包
-   ↓
-送到對應 Discord
-   ↓
-更新 seen.json
-   ↓
-commit 回 GitHub
-   ↓
-Runner 結束
-```
-
-
-## GitHub Actions 手動執行模式
-
-按 `Actions → MapleStory 公告監控 → Run workflow` 時，現在會出現 `執行模式` 下拉選單：
-
-- `normal`：正式模式，只處理尚未通知的公告；自動排程也使用這個模式。
-- `simulate`：實際公告回放。會抓目前各分流最新的一篇真正官方公告，經 Gemini 摘要後送 Discord；不讀取 seen 來阻擋，也不修改 `seen.json`。適合第一次確認 Discord、Gemini 與 Secrets 是否正常。
-
-GitHub Actions 的 `workflow_dispatch` 支援 `choice` 型別輸入，因此手動 Run workflow 時可以直接從下拉選單選模式。
-
-### 第一次測試建議
-
-1. 到 `Actions → MapleStory 公告監控 → Run workflow`。
-2. `執行模式` 選 `simulate`。
-3. 按 `Run workflow`。
-4. 點進這次執行，確認 `檢查必要 Secrets` 顯示四個 `OK`。
-5. 查看 `執行公告監控`，應看到 `[SIMULATE]`，最後會顯示 `成功發送 X 篇`。
-6. 確認 Discord 收到實際公告。
-7. 測試完成後不用再手動操作；每 10 分鐘的自動排程會使用 `normal` 模式。
-
-如果 `simulate` 成功但 Discord 沒看到訊息，請看 `執行公告監控` 裡的 Discord/Gemini 錯誤；如果 Secrets 缺少，`檢查必要 Secrets` 會直接標示 `MISSING`。
-
-## 手動模式
-
-### 只跑一次
-
-本機：
+`Settings → Secrets and variables → Actions → Secrets`
+
+| Secret | 用途 |
+|---|---|
+| `GEMINI_API_KEY` | 四支監控共用 |
+| `DISCORD_GENERAL_WEBHOOK` | 楓之谷－一般／活動 |
+| `DISCORD_SHOP_WEBHOOK` | 楓之谷－商城 |
+| `DISCORD_MAINTENANCE_WEBHOOK` | 楓之谷－維護 |
+| `DISCORD_WARFRAME_WEBHOOK` | Warframe |
+| `DISCORD_LOL_WEBHOOK` | 英雄聯盟 |
+| `DISCORD_VALORANT_WEBHOOK` | 特戰英豪 |
+
+不要把任何 Webhook 或 API Key 寫進程式碼、README 或 commit 紀錄裡，一律用 Secrets。
+
+另外在 `Settings → Actions → General → Workflow permissions` 確認已選 **Read and write permissions**，四支監控更新 seen 檔案後都需要自動 commit 回 repository。
+
+---
+
+## GitHub Actions 手動測試模式
+
+### 楓之谷（`monitor.yml`）
+| 模式 | 說明 |
+|---|---|
+| `normal` | 正常模式，只處理尚未通知的新公告 |
+| `simulate` | 回放三個分流各最新 1 篇，不修改 `seen.json` |
+| `simulate-general` | 只回放「一般／活動」分流最新 1 篇 |
+| `simulate-shop` | 只回放「商城」分流最新 1 篇 |
+| `simulate-maintenance` | 只回放「維護／更新」分流最新 1 篇 |
+
+### Warframe（`warframe_monitor.yml`）
+| 模式 | 說明 |
+|---|---|
+| `normal` | 正常模式 |
+| `simulate` | 強制處理 RSS 最新一篇，不修改 `warframe_seen.json` |
+
+### 英雄聯盟（`lol_monitor.yml`）
+| 模式 | 說明 |
+|---|---|
+| `normal` | 正常模式 |
+| `force-latest` | 強制處理列表頁最新一篇，不修改 `lol_seen.json` |
+| `test-latest-3` | 測試最新 3 篇（含版本重點圖抓取），不修改 `lol_seen.json` |
+
+### 特戰英豪（`valorant_monitor.yml`）
+| 模式 | 說明 |
+|---|---|
+| `normal` | 正常模式，只處理尚未通知的新版本公告（單輪上限 1 篇，`VALORANT_MAX_NEW_PER_RUN`） |
+| `test-latest` | 強制測試列表頁最新一篇，不修改 `valorant_seen.json` |
+| `test-13-06` | 強制測試固定寫死的 13.06 版公告網址，不修改 `valorant_seen.json`（偵錯用的特定版本測試，不是通用參數） |
+
+> `workflow_dispatch` 另外還有一個 `test_url` 輸入欄位（預設值就是 13.06 那篇網址），但目前 3 個模式選項裡沒有任何一個會真的去讀這個欄位──`test-13-06` 是把網址寫死在 run 指令裡，`test_url` 這個輸入目前形同虛設。如果想要「手動貼網址測試任一篇」的彈性，要嘛把 `test-13-06` 改成讀 `$TEST_URL` 而不是寫死字串，要嘛乾脆比照 `lol_monitor.py --force-url` 的模式把這個輸入接起來。
+
+所有「模擬／測試」類模式都**不會**修改對應的 seen 檔案，可以重複執行測試，不用擔心弄亂正式的已讀紀錄。
+
+---
+
+## 本機手動執行
 
 ```bat
+:: 楓之谷
 python monitor.py --scan-once
-```
-
-### 實際公告回放
-
-```bat
 python monitor.py --simulate
+
+:: Warframe
+python warframe_monitor.py --scan-once
+python warframe_monitor.py --simulate
+
+:: 英雄聯盟
+python lol_monitor.py --scan-once
+python lol_monitor.py --force-latest
+python lol_monitor.py --test-latest-3
+
+:: 特戰英豪
+python valorant_monitor.py --scan-once
+python valorant_monitor.py --test-latest
+python valorant_monitor.py --force-url https://playvalorant.com/zh-tw/news/game-updates/...
 ```
 
-這會抓目前實際公告並送到 Discord，但不修改 `seen.json`。
+本機測試請先複製 `.env.example` 為 `.env` 並填入對應的 API Key 和 Webhook 網址。
 
-### 測試設定
+---
 
-```bat
-python monitor.py --test
-```
+## VALORANT 的特殊設計：中英對照抓武器名稱
 
-### 指定公告
+`valorant_monitor.py` 抓到繁中官方公告正文之後，會額外把同一篇網址的 `/zh-tw/` 換成 `/en-us/`，抓**英文官方版**，只截取其中「WEAPONS UPDATES」那個段落，交給 Gemini 當作「新增武器英文名稱」的對照參考（`english_weapon_reference` 參數）。這是因為武器新增/調整這類內容，繁中公告有時候翻譯用詞會跟官方正式譯名有落差，用英文原文反查可以降低這類用詞誤差。
 
-```bat
-python monitor.py --force-bid 83778
-```
+英文版讀取失敗時不會中斷整個流程，會自動改用純繁中公告處理，只是少了這層英文對照。
 
-## GitHub Actions 上不要使用的模式
+---
 
-不要在 GitHub Actions 執行：
+## Gemini 模型與容錯機制
 
-```bat
-python monitor.py
-```
+- 預設模型與 fallback 清單由 `GEMINI_MODEL` / `GEMINI_FALLBACK_MODELS` 環境變數控制，主模型忙碌時會自動依序切換到下一個
+- 單次輸出上限為 8192 tokens；若 Gemini 回傳的 `finishReason` 是 `MAX_TOKENS`（代表輸出被腰斬、內容不完整），會自動判定該次嘗試失敗並換下一個模型重試，避免把殘缺內容送到 Discord
+- 各遊戲的摘要格式驗證失敗時，會自動帶著錯誤說明重新整理一次（維護類公告最多到第三次重試）
 
-因為這是本機長時間 while-loop 模式。
+---
 
-GitHub Actions 應該使用：
+## Discord 發送規則
 
-```bat
-python monitor.py --scan-once
-```
+- 懶人包超過 Discord 單則訊息 2000 字上限時，會依換行邊界自動切成多則訊息依序發送（標示 `(1/N)`），不會直接截斷內容
+- 若該篇公告有對應的圖片（目前只有 LoL 的「版本重點圖」），會用 Discord embed 附在第一則訊息上
+- 發送失敗（Gemini 沒有產出摘要、Discord API 回傳錯誤等）時，不會把該篇標記為已讀，下次執行會重新嘗試
 
-由 GitHub 的 `schedule` 每 5 分鐘重新啟動一次。
+---
 
-## 如果 Actions 顯示失敗
+## 已知限制
 
-先點進失敗的 workflow run，再點紅色失敗的 step。
+- Warframe 論壇原本用 Playwright 開瀏覽器抓內文，但 GitHub Actions 的 IP 會被 Cloudflare 擋下，後來改成直接解析 RSS 的 `description` 欄位，不再需要瀏覽器
+- VALORANT 的英文對照目前只處理「WEAPONS UPDATES」段落，其他段落（幹員調整、地圖異動等）沒有做中英對照
+- `valorant_monitor.yml` 的 `test_url` 輸入欄位目前沒有實際被任何模式讀取，`test-13-06` 是寫死網址的暫時測試選項
 
-常見情況：
+📜 License
 
-### `GEMINI_API_KEY` 相關錯誤
+本專案主要為個人／私人 Discord 公告自動化工具。
 
-檢查：
-`Settings → Secrets and variables → Actions`
-
-確認 Secret 名稱完全是：
-
-`GEMINI_API_KEY`
-
-### Discord HTTP 失敗
-
-確認 3 個 Discord Webhook Secret 是否貼完整，尤其不要多貼空白或引號。
-
-### `seen.json` push 被拒絕
-
-確認：
-`Settings → Actions → General → Workflow permissions`
-
-已設定 `Read and write permissions`。
-
-### Actions 完全沒有自動執行
-
-先手動 `Run workflow` 測試。
-
-另外，scheduled workflow 只會從 repository 的預設分支執行，而且 GitHub 說明指出排程在高負載時可能延遲；公開 repository 若 60 天沒有 repository activity，scheduled workflow 也可能被自動停用。
-
-## 安全注意事項
-
-- `.env` 已被 `.gitignore` 排除。
-- 真正的 Gemini API Key 與 Discord Webhook 必須放 GitHub Secrets。
-- 不要把 Secret 貼到 Issue、README、程式碼或公開 commit。
-- 不要把你現在本機的 `.env` 上傳到 GitHub。
-
-
-### v24 摘要格式調整
-- Gemini 摘要改為固定四區塊：📌 重點整理、🗓️ 時間／期限、🎁 活動／獎勵／商品、⚠️ 注意事項。
-- 四個區塊固定保留，不再因模型判斷內容較少而任意省略。
-- 提高完整度要求：商品名稱、日期、時間、價格、數量、條件、機率與限制等資訊盡量完整保留。
-- Gemini temperature 降至 0.1，讓同一公告多次整理時格式與內容更穩定。
-- 這只修改懶人包生成方式，不會改變公告分流、seen.json 或 GitHub Actions 排程。
-
-
-## v24 調整
-- Gemini 摘要加入一般／商城／維護三種公告的完整度規則。
-- 維護／更新公告的「重點整理」至少 6 點，要求涵蓋本次更新、商城、活動、優惠、異常處理等原文事項。
-- 加入摘要格式與完整度驗證；若第一次過短或缺區塊，會自動重新整理一次。
-- GitHub Actions 排程改為每 5 分鐘一次；GitHub 官方文件說明這是 scheduled workflow 的最短間隔。
+遊戲名稱、官方網站、Logo、角色與其他相關素材之權利均屬各遊戲／發行商所有。本專案不代表 MapleStory、Digital Extremes、Riot Games 或 Discord 官方。
